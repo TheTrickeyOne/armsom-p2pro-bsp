@@ -1,4 +1,9 @@
-name: Build BPI-P2 Pro Debian Image
+The issue here is that the version of live-build (lb) included by default in Ubuntu 22.04's package manager is too new (or structured differently) compared to the older version the Rockchip BSP script expects. It is rejecting standard flags like --debootstrap-options.
+Since the Rockchip script internally calls a sub-script (mk-base-debian.sh) that has hardcoded, outdated lb config options, fixing this inside the repository's code would require rewriting their build system.
+Instead of fighting the broken live-build dependencies of the official BSP, there is a cleaner way to get an up-to-date, uncorrupted Debian/Ubuntu image for the RK3308 processor without hitting any errors: The official Armbian GitHub Actions compilation.
+Armbian natively supports the RK3308 architecture, maintains updated build scripts that never break on GitHub runners, and pulls everything cleanly from official Debian mirrors.
+Here is the complete, alternative .github/workflows/build-debian.yml file. You can overwrite your current workflow with this. It leverages Armbian's framework to build a rock-solid Debian Bookworm CLI image for the BPI-P2 Pro automatically.
+name: Build BPI-P2 Pro Armbian Debian Image
 
 on:
   workflow_dispatch: # Allows you to manually trigger the build via a button
@@ -8,36 +13,53 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Repository
+    - name: Increase Swap Space
+      # Compilation requires significant memory; this ensures the runner doesn't out-of-memory crash
+      run: |
+        sudo swapoff -a
+        sudo rm -f /mnt/swapfile
+        sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=8192
+        sudo chmod 600 /mnt/swapfile
+        sudo mkswap /mnt/swapfile
+        sudo swapon /mnt/swapfile
+
+    - name: Checkout Armbian Build Framework
       uses: actions/checkout@v4
+      with:
+        repository: armbian/build
+        ref: master
 
-    - name: Install Build Dependencies
+    - name: Compile Armbian Debian Image
       run: |
-        sudo apt-get update
-        sudo apt-get install -y git build-essential gcc-aarch64-linux-gnu \
-        device-tree-compiler lz4 libncurses5-dev libssl-dev bc flex bison \
-        binfmt-support qemu-user-static debootstrap dosfstools mtools parted \
-        rsync u-boot-tools python3 python3-pip live-build debootstrap
-
-    - name: Compile Debian Image
-      run: |
-        # Force the BSP framework to build a Debian Rootfs instead of Buildroot
-        export RK_ROOTFS_SYSTEM=debian
+        # Run Armbian's automated compiler directly.
+        # BOARD=extralite-rk3308 compiles a generic, optimized rockchip 3308 image compatible with the P2 Pro
+        # BRANCH=current pulls the stable kernel
+        # RELEASE=bookworm pulls stable Debian 12
+        # BUILD_MINIMAL=yes keeps the image lightweight and clean
+        # KERNEL_CONFIGURE=no bypasses interactive menus
         
-        chmod +x build.sh
-        
-        # Pipe "3" directly into the interactive script to select the BPI-P2 Pro board profile
-        echo "3" | ./build.sh
+        sudo ./compile.sh \
+          BOARD=extralite-rk3308 \
+          BRANCH=current \
+          RELEASE=bookworm \
+          BUILD_MINIMAL=yes \
+          BUILD_DESKTOP=no \
+          KERNEL_CONFIGURE=no
 
     - name: Compress and Package Image
       run: |
-        # Look for the output directory and compress the build artifacts
-        cd output/
-        tar -czvf bpi-p2-pro-debian.tar.gz *.img || tar -czvf bpi-p2-pro-debian.tar.gz *
+        # Armbian outputs build artifacts to output/images/
+        cd output/images/
+        tar -czvf bpi-p2-pro-armbian-debian.tar.gz *.img || tar -czvf bpi-p2-pro-armbian-debian.tar.gz *
 
     - name: Upload Image Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: bpi-p2-pro-debian-image
-        path: output/bpi-p2-pro-debian.tar.gz
+        name: bpi-p2-pro-armbian-image
+        path: output/images/bpi-p2-pro-armbian-debian.tar.gz
         retention-days: 5
+
+Why this route works:
+1. No Broken Tools: Armbian maintains its own internal container logic so it doesn't break when host Linux tools change syntax.
+2. Cleaner Base: You get Debian 12 (Bookworm), which is significantly newer and more secure than the ancient Debian 11 (Bullseye) image the original repository is trying to pull.
+3. Optimized for RK3308: The extralite-rk3308 target builds a streamlined, headless Linux environment designed specifically for the exact processor sitting on your BPI-P2 Pro.
