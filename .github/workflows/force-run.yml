@@ -1,7 +1,7 @@
 name: Build BPI-P2 Pro Debian Image
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual trigger via the GitHub UI button
 
 jobs:
   build:
@@ -10,29 +10,44 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
+      with:
+        submodules: 'recursive' # Ensures any linked rootfs submodules are cleanly pulled
 
-    - name: Build inside Ubuntu 20.04 Container
+    - name: Install Standard Build Dependencies
       run: |
-        # We launch an isolated Ubuntu 20.04 container to ensure the correct, legacy version of live-build is used
-        docker run --privileged --rm \
-          -v ${{ github.workspace }}:/workspace \
-          -w /workspace \
-          ubuntu:20.04 \
-          bash -c "
-            apt-get update && \
-            DEBIAN_FRONTEND=noninteractive apt-get install -y \
-              sudo git build-essential gcc-aarch64-linux-gnu \
-              device-tree-compiler lz4 libncurses5-dev libssl-dev bc flex bison \
-              binfmt-support qemu-user-static debootstrap dosfstools mtools parted \
-              rsync u-boot-tools python3 live-build && \
-            export RK_ROOTFS_SYSTEM=debian && \
-            chmod +x build.sh && \
-            echo 3 | ./build.sh
-          "
+        sudo apt-get update
+        sudo apt-get install -y git build-essential gcc-aarch64-linux-gnu \
+        device-tree-compiler lz4 libncurses5-dev libssl-dev bc flex bison \
+        binfmt-support qemu-user-static debootstrap dosfstools mtools parted \
+        rsync u-boot-tools python3 python3-pip
+
+    - name: Install Proprietary Rockchip Live-Build Patches
+      run: |
+        # Override standard Ubuntu packages with the legacy, custom-patched 
+        # live-build utilities bundled natively inside the SDK repository.
+        if [ -d "debian/ubuntu-build-service/packages" ]; then
+          cd debian/ubuntu-build-service/packages/
+          sudo dpkg -i *.deb || true
+          sudo apt-get install -f -y
+        elif [ -d "rootfs/ubuntu-build-service/packages" ]; then
+          cd rootfs/ubuntu-build-service/packages/
+          sudo dpkg -i *.deb || true
+          sudo apt-get install -f -y
+        fi
+
+    - name: Compile Official Debian Image
+      run: |
+        # Set target environment to Debian matching the developer manual
+        export RK_ROOTFS_SYSTEM=debian
+        
+        chmod +x build.sh
+        
+        # Select option 3 (BoardConfig_rk3308_bpi-p2_pro.mk) non-interactively
+        echo "3" | ./build.sh
 
     - name: Compress and Package Image
       run: |
-        # Compress the build output from the folder
+        # Navigate to the compiled build output and archive the flashable image
         cd output/
         tar -czvf bpi-p2-pro-debian.tar.gz *.img || tar -czvf bpi-p2-pro-debian.tar.gz *
 
