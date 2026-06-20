@@ -1,0 +1,46 @@
+name: Armbian Compiler Pipeline
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Increase Swap Space
+      run: |
+        sudo swapoff -a
+        sudo rm -f /mnt/swapfile
+        sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=8192
+        sudo chmod 600 /mnt/swapfile
+        sudo mkswap /mnt/swapfile
+        sudo swapon /mnt/swapfile
+
+    - name: Checkout Armbian Build Framework
+      uses: actions/checkout@v4
+      with:
+        repository: armbian/build
+        ref: master
+
+    - name: Compile Armbian Debian Image
+      run: |
+        sudo ./compile.sh \
+          BOARD=extralite-rk3308 \
+          BRANCH=current \
+          RELEASE=bookworm \
+          BUILD_MINIMAL=yes \
+          BUILD_DESKTOP=no \
+          KERNEL_CONFIGURE=no
+
+    - name: Compress and Package Image
+      run: |
+        cd output/images/
+        tar -czvf bpi-p2-pro-armbian-debian.tar.gz *.img || tar -czvf bpi-p2-pro-armbian-debian.tar.gz *
+
+    - name: Upload Image Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: bpi-p2-pro-armbian-image
+        path: output/images/bpi-p2-pro-armbian-debian.tar.gz
+        retention-days: 5
