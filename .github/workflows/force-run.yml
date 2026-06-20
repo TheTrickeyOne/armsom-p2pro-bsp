@@ -1,50 +1,44 @@
-name: Armbian Compiler Pipeline
+name: Build BPI-P2 Pro Debian Image
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Increase Swap Space
-      run: |
-        sudo swapoff -a
-        sudo rm -f /mnt/swapfile
-        sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=8192
-        sudo chmod 600 /mnt/swapfile
-        sudo mkswap /mnt/swapfile
-        sudo swapon /mnt/swapfile
-
-    - name: Checkout Armbian Build Framework
+    - name: Checkout Repository
       uses: actions/checkout@v4
-      with:
-        repository: armbian/build
-        ref: master
 
-    - name: Compile Armbian Debian Image
+    - name: Build inside Ubuntu 20.04 Container
       run: |
-        # PROGRESS_DISPLAY=plain prevents terminal menu creation
-        # BUILD_ONLY=default bypasses the interactive build selection menu
-        sudo ./compile.sh \
-          BOARD=extralite-rk3308 \
-          BRANCH=current \
-          RELEASE=bookworm \
-          BUILD_MINIMAL=yes \
-          BUILD_DESKTOP=no \
-          KERNEL_CONFIGURE=no \
-          PROGRESS_DISPLAY=plain \
-          BUILD_ONLY=default
+        # We launch an isolated Ubuntu 20.04 container to ensure the correct, legacy version of live-build is used
+        docker run --privileged --rm \
+          -v ${{ github.workspace }}:/workspace \
+          -w /workspace \
+          ubuntu:20.04 \
+          bash -c "
+            apt-get update && \
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              sudo git build-essential gcc-aarch64-linux-gnu \
+              device-tree-compiler lz4 libncurses5-dev libssl-dev bc flex bison \
+              binfmt-support qemu-user-static debootstrap dosfstools mtools parted \
+              rsync u-boot-tools python3 live-build && \
+            export RK_ROOTFS_SYSTEM=debian && \
+            chmod +x build.sh && \
+            echo 3 | ./build.sh
+          "
 
     - name: Compress and Package Image
       run: |
-        cd output/images/
-        tar -czvf bpi-p2-pro-armbian-debian.tar.gz *.img || tar -czvf bpi-p2-pro-armbian-debian.tar.gz *
+        # Compress the build output from the folder
+        cd output/
+        tar -czvf bpi-p2-pro-debian.tar.gz *.img || tar -czvf bpi-p2-pro-debian.tar.gz *
 
     - name: Upload Image Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: bpi-p2-pro-armbian-image
-        path: output/images/bpi-p2-pro-armbian-debian.tar.gz
+        name: bpi-p2-pro-debian-image
+        path: output/bpi-p2-pro-debian.tar.gz
         retention-days: 5
