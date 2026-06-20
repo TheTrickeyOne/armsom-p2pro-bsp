@@ -19,7 +19,7 @@ jobs:
         sudo apt-get install -y git build-essential gcc-aarch64-linux-gnu \
         device-tree-compiler lz4 libncurses5-dev libssl-dev bc flex bison \
         binfmt-support qemu-user-static debootstrap dosfstools mtools parted \
-        rsync u-boot-tools python3 python3-pip
+        rsync u-boot-tools python3 python3-pip expect time
 
     - name: Install Proprietary Rockchip Live-Build Patches
       run: |
@@ -38,7 +38,6 @@ jobs:
     - name: Swap Out Hardcoded Chinese Mirrors
       run: |
         # Find all references to the Chinese USTC mirror and replace them with global mirrors.
-        # This prevents the GitHub runner from getting blocked during debootstrap.
         find . -type f -exec sed -i 's/mirrors.ustc.edu.cn\/debian-security/security.debian.org\/debian-security/g' {} +
         find . -type f -exec sed -i 's/mirrors.ustc.edu.cn/deb.debian.org/g' {} +
 
