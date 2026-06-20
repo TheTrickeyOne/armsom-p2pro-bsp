@@ -41,6 +41,50 @@ jobs:
         find . -type f -exec sed -i 's/mirrors.ustc.edu.cn\/debian-security/security.debian.org\/debian-security/g' {} +
         find . -type f -exec sed -i 's/mirrors.ustc.edu.cn/deb.debian.org/g' {} +
 
+    - name: Expand Partition Table Allocation
+      run: |
+        # Modify the Rockchip partition text layout file to scale rootfs partition limits
+        python3 -c "
+        import re
+        filepath = 'device/rockchip/rk3308/parameter-64bit.txt'
+        with open(filepath, 'r') as f:
+            content = f.read()
+        
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            if 'rootfs' in line:
+                prefix = ''
+                part_list_str = line
+                if 'mtdparts=' in line:
+                    match = re.search(r'(.*mtdparts=[^:]+:)(.+)', line)
+                    if match:
+                        prefix = match.group(1)
+                        part_list_str = match.group(2)
+                
+                tokens = re.findall(r'([^,]+)@([^,]+)\(([^)]+)\)', part_list_str)
+                new_tokens = []
+                current_offset = None
+                
+                for size, offset, name in tokens:
+                    if current_offset is not None:
+                        offset = f'0x{current_offset:08x}'
+                    
+                    if 'rootfs' in name:
+                        size = '0x00D00000' # Scale rootfs allocation limits to ~6.5GB
+                    
+                    new_tokens.append(f'{size}@{offset}({name})')
+                    
+                    if size != '-':
+                        size_int = int(size, 16)
+                        offset_int = int(offset, 16)
+                        current_offset = offset_int + size_int
+                
+                lines[i] = prefix + ','.join(new_tokens)
+        
+        with open(filepath, 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+        "
+
     - name: Compile Official Debian Image
       run: |
         # Set target environment to Debian matching the developer manual
