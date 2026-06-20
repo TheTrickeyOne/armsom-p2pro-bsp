@@ -25,13 +25,17 @@ jobs:
 
     - name: Compile Armbian Debian Image
       run: |
+        # PROGRESS_DISPLAY=plain prevents terminal menu creation
+        # BUILD_ONLY=default bypasses the interactive build selection menu
         sudo ./compile.sh \
           BOARD=extralite-rk3308 \
           BRANCH=current \
           RELEASE=bookworm \
           BUILD_MINIMAL=yes \
           BUILD_DESKTOP=no \
-          KERNEL_CONFIGURE=no
+          KERNEL_CONFIGURE=no \
+          PROGRESS_DISPLAY=plain \
+          BUILD_ONLY=default
 
     - name: Compress and Package Image
       run: |
